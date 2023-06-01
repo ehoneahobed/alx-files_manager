@@ -1,14 +1,14 @@
+#!/usr/bin/node
+
 const express = require("express");
-const routes = require("./routes/index");
+const router = require("./routes/index");
 
-const app = express();
-const port = process.env.PORT || 5000;
+const server = express();
+const PORT = process.env.PORT ? process.env.PORT : 5000;
 
-app.use(express.json());
-routes(app);
+server.use(express.json());
+server.use(router);
 
-app.listen(port, () => {
-  console.log(`Server running on port ${port}`);
-});
-
-export default app;
+server.listen(PORT, () =>
+  console.log(`The server is running on port: ${PORT}`)
+);

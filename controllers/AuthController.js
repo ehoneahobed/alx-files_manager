@@ -1,58 +1,93 @@
-const sha1 = require('sha1');
-const redisClient = require('../utils/redis');
-const dbClient = require('../utils/db');
+#!/usr/bin/node
 
-import { v4 as uuidv4 } from 'uuid';
+const { v4 } = require('uuid');
+const dbClient = require('../utils/db');
+const redisClient = require('../utils/redis');
+const { getAuthzHeader, getToken, pwdHashed } = require('../utils/utils');
+const { decodeToken, getCredentials } = require('../utils/utils');
 
 class AuthController {
-  static async getConnect (req, res) {
-    const authHeader = req.headers.authorization;
-    if (!authHeader) {
+  static async getConnect(req, res) {
+    const authzHeader = getAuthzHeader(req);
+    if (!authzHeader) {
       res.status(401).json({ error: 'Unauthorized' });
+      res.end();
+      return;
     }
-    try {
-      const auth = Buffer.from(authHeader.split(' ')[1], 'base64').toString().split(':');
-      const email = auth[0];
-      const pass = sha1(auth[1]);
-
-      const user = await dbClient.getUser({ email });
-
-      if (!user) {
-        res.status(401).json({ error: 'Unauthorized' });
-      }
-
-      if (pass !== user.password) {
-        res.status(401).json({ error: 'Unauthorized' });
-      }
-
-      const token = uuidv4();
-      const key = `auth_${token}`;
-      const duration = (60 * 60 * 24);
-      await redisClient.set(key, user._id.toString(), duration);
-
-      res.status(200).json({ token });
-    } catch (error) {
-      console.log(error);
-      res.status(500).json({ error: 'Server error' });
+    const token = getToken(authzHeader);
+    if (!token) {
+      res.status(401).json({ error: 'Unauthorized' });
+      res.end();
+      return;
     }
+    const decodedToken = decodeToken(token);
+    if (!decodedToken) {
+      res.status(401).json({ error: 'Unauthorized' });
+      res.end();
+      return;
+    }
+    const { email, password } = getCredentials(decodedToken);
+    const user = await dbClient.getUser(email);
+    if (!user) {
+      res.status(401).json({ error: 'Unauthorized' });
+      res.end();
+      return;
+    }
+    if (user.password !== pwdHashed(password)) {
+      res.status(401).json({ error: 'Unauthorized' });
+      res.end();
+      return;
+    }
+    const accessToken = v4();
+    await redisClient.set(`auth_${accessToken}`, user._id.toString('utf8'), 60 * 60 * 24);
+    res.json({ token: accessToken });
+    res.end();
   }
 
-  static async getDisconnect (req, res) {
-    try {
-      const userToken = req.header('X-Token');
-
-      const userKey = await redisClient.get(`auth_${userToken}`);
-
-      if (!userKey) {
-        res.status(401).json({ error: 'Unauthorized' });
-      }
-      await redisClient.del(`auth_${userToken}`);
-      res.status(204).send('Disconnected');
-    } catch (error) {
-      console.log(error);
-      res.status(500).json({ error: 'Server error' });
+  static async getDisconnect(req, res) {
+    const token = req.headers['x-token'];
+    if (!token) {
+      res.status(401).json({ error: 'Unauthorized' });
+      res.end();
+      return;
     }
+    const id = await redisClient.get(`auth_${token}`);
+    if (!id) {
+      res.status(401).json({ error: 'Unauthorized' });
+      res.end();
+      return;
+    }
+    const user = await dbClient.getUserById(id);
+    if (!user) {
+      res.status(401).json({ error: 'Unauthorized' });
+      res.end();
+      return;
+    }
+    await redisClient.del(`auth_${token}`);
+    res.status(204).end();
+  }
+
+  static async getMe(req, res) {
+    const token = req.headers['x-token'];
+    if (!token) {
+      res.status(401).json({ error: 'Unauthorized' });
+      res.end();
+      return;
+    }
+    const id = await redisClient.get(`auth_${token}`);
+    if (!id) {
+      res.status(401).json({ error: 'Unauthorized' });
+      res.end();
+      return;
+    }
+    const user = await dbClient.getUserById(id);
+    if (!user) {
+      res.status(401).json({ error: 'Unauthorized' });
+      res.end();
+      return;
+    }
+    res.json({ id: user._id, email: user.email }).end();
   }
 }
 
-export default AuthController;
+module.exports = AuthController;
