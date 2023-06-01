@@ -6,17 +6,17 @@ class AppController {
     try {
       const redis = redisClient.isAlive();
       const db = dbClient.isAlive();
-      response.status(200).send({ redis, db });
+      res.status(200).send({ redis, db });
     } catch (error) {
       console.log(error);
     }
   }
 
-  static async getStats(request, response) {
+  static async getStats(request, res) {
     try {
       const users = await dbClient.nbUsers();
       const files = await dbClient.nbFiles();
-      response.status(200).send({ users, files });
+      res.status(200).send({ users, files });
     } catch (error) {
       console.log(error);
     }
